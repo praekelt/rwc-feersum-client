@@ -1,146 +1,69 @@
 // @ts-check
 import SockJS from 'sockjs-client';
 
-const feersumClient = {
-    init(url) {
-        this.messageHandlers = this.messageHandlers || [];
-        this.closeHandlers = this.closeHandlers || [];
-        this.passThroughHandlers = this.messageHandlers || [];
+import FeersumParser from './parsers';
 
-        this.handlers = {};
+/** A network transport client that handles network connections and message transformations */
+class RWCFeersumClient {
+    constructor({ url, config }) {
+        this.url = url;
+        this.config = config;
+        this.parser = new FeersumParser({
+            version: config.schemaVersion
+        });
+    }
 
+    init(handlers) {
+        this.handlers = handlers;
+        return this.open();
+    }
+
+    /**
+     * Open the socket connection and bind all handlers.
+     * @return {promise} A promise which gets resolved when a connection is opened.
+     */
+    open() {
         return new Promise((resolve, reject) => {
-            this.sock = new SockJS(url);
+            this.sock = new SockJS(this.url);
             this.sock.onopen = () => {
                 this.bindReceiveHandler();
-                this.bindCloseHandlers();
+                this.handlers.connection.open();
                 resolve();
             };
-            this.sock.onclose = ({ reason }) => reject(reason);
+            this.sock.onclose = err => {
+                this.handlers.connection.close(err);
+                reject(err);
+            };
         });
-    },
+    }
 
     send(message) {
-        this.sock.send(message);
-    },
+        this.sock.send({
+            message,
+            ...this.config.meta
+        });
+    }
 
     bindReceiveHandler(message) {
-        this.sock.onmessage = ({ type, data }) => this.processResponse(this.handlers[type], data);
-    },
-
-    processResponse(handlers, data) {
-        handlers.map(handler =>
-            handler({
-                ...JSON.parse(data),
-                origin: 'remote'
-            })
-        );
-    },
-
-    bindMessageHandlers() {
-        this.messageHandlers.map(fn => {
-            this.sock.onmessage = ({ data }) =>
-                fn({
-                    ...JSON.parse(data),
-                    origin: 'remote'
-                });
-        });
-    },
-
-    bindCloseHandlers() {
-        this.closeHandlers.map(fn => (this.sock.onclose = fn));
-    },
-
-    onmessage(fn) {
-        this.messageHandlers.push(fn);
-        this.sock.onmessage = ({ data }) => {
-            fn({
-                ...JSON.parse(data),
-                origin: 'remote'
-            });
-        };
-    },
-
-    onpassthrough(fn, data) {
-        return data => fn(data);
-    },
-
-    onclose(fn) {
-        this.closeHandlers.push(fn);
-        this.sock.onclose = fn;
+        this.sock.onmessage = ({ type, data }) =>
+            this.handlers[type](this.parser.parse(data));
     }
-};
 
-export const feersumClientLegacy = {
-    init(url) {
-        this.messageHandlers = this.messageHandlers || [];
-        this.closeHandlers = this.closeHandlers || [];
-        return new Promise((resolve, reject) => {
-            this.sock = new SockJS(url);
-            this.sock.onopen = () => {
-                this.bindMessageHandlers();
-                this.bindCloseHandlers();
-                resolve();
-            };
-            this.sock.onclose = ({ reason }) => reject(reason);
-        });
-    },
+    connectionRetry(count = 0) {
+        let {
+            retransmissionTimeout,
+            retransmissionAttempts
+        } = this.config.network;
 
-    send(message) {
-        this.sock.send(message);
-    },
-
-    bindMessageHandlers() {
-        this.messageHandlers.map(fn => {
-            this.sock.onmessage = ({ data }) =>
-                fn({
-                    ...JSON.parse(data),
-                    origin: 'remote'
-                });
-        });
-    },
-
-    bindCloseHandlers() {
-        this.closeHandlers.map(fn => (this.sock.onclose = fn));
-    },
-
-    onmessage(fn) {
-        this.messageHandlers.push(fn);
-        this.sock.onmessage = ({ data }) =>
-            fn({
-                ...parseLegacy(JSON.parse(data)),
-                origin: 'remote'
-            });
-    },
-
-    onclose(fn) {
-        this.closeHandlers.push(fn);
-        this.sock.onclose = fn;
+        if (count < retransmissionAttempts)
+            setTimeout(
+                () =>
+                    this.open().catch(err => {
+                        this.connectionRetry(count + 1);
+                    }),
+                retransmissionTimeout
+            );
     }
-};
+}
 
-var parseLegacy = data => {
-    var newData = Object.assign({}, data);
-    newData.pages = [];
-    var pages = data.pages;
-
-    pages.map(page => {
-        var tempPage = Object.assign({}, page);
-        tempPage.image = {};
-        Object.keys(page).map(key => {
-            if (key.includes('image_')) {
-                tempPage.image[key.replace('image_', '')] = page[key];
-                delete newData.property;
-            }
-        });
-        if (Object.keys(tempPage.image).length) {
-            newData.pages.push(tempPage);
-        } else {
-            newData.pages.push(page);
-        }
-    });
-
-    return newData;
-};
-
-export default feersumClient;
+export default RWCFeersumClient;
