@@ -5,14 +5,9 @@ export default class FeersumParser {
     }
 
     parser() {
-        return parserVersionMap[this.version](data);
+        return parserVersionMap[this.version];
     }
 }
-
-const parserVersionMap = {
-    "0.9": parser09,
-    "0.10": parser10
-};
 
 /**
  * Parser function for Feersum Schema v0.9
@@ -49,7 +44,7 @@ const parser09 = {
                   content: data.text
               }
             : data.type === "button"
-              ? { content: data.postback }
+              ? { postback: data.postback }
               : { content: "" };
     }
 };
@@ -61,4 +56,9 @@ const parser09 = {
 const parser10 = {
     parse: data => data,
     format: data => data
+};
+
+const parserVersionMap = {
+    "0.9": parser09,
+    "0.10": parser10
 };

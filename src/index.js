@@ -18,9 +18,8 @@ class RWCFeersumClient {
         };
         this.retryAllowed = true;
         this.sockReady = false;
-        this.queue = [];
         this.parser = new FeersumParser({
-            version: config.schemaVersion
+            version: config.schemaVersion || "0.9"
         }).parser();
     }
 
@@ -48,10 +47,6 @@ class RWCFeersumClient {
                 );
                 this.config.startNew = false;
                 this.retryAllowed = true;
-                this.queue.map(message => {
-                    this.send(message);
-                });
-                this.queue = [];
                 this.sockReady = true;
                 this.bindReceiveHandler();
                 this.handlers.connection.open();
@@ -70,20 +65,21 @@ class RWCFeersumClient {
     }
 
     send(message) {
-        !this.sockReady
-            ? this.queue.push(message)
-            : this.sock.send(
-                  JSON.stringify({
-                      type: "message",
-                      message: this.parser.format(message)
-                  })
-              );
+        if (this.sockReady) {
+            this.sock.send(
+                JSON.stringify({
+                    type: "message",
+                    message: this.parser.format(message)
+                })
+            );
+        }
     }
 
     bindReceiveHandler(message) {
         this.sock.onmessage = ({ type, data }) => {
+            data = this.parser.parse(JSON.parse(data));
             data.origin = "remote";
-            this.handlers[type](this.parser.parse(JSON.parse(data)));
+            this.handlers[type](data);
         };
     }
 

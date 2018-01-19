@@ -1,11 +1,10 @@
-var _extends = Object.assign || function (target) { for (var i = 1; i < arguments.length; i++) { var source = arguments[i]; for (var key in source) { if (Object.prototype.hasOwnProperty.call(source, key)) { target[key] = source[key]; } } } return target; };
-
 function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
 
 // @ts-check
-import SockJS from 'sockjs-client';
+import SockJS from "sockjs-client";
 
-import FeersumParser from './parsers';
+import FeersumParser from "./parsers";
+import { randId } from "./utils";
 
 /** A network transport client that handles network connections and message transformations */
 
@@ -17,10 +16,19 @@ var RWCFeersumClient = function () {
         _classCallCheck(this, RWCFeersumClient);
 
         this.url = url;
-        this.config = config;
+        this.config = {
+            channel_id: config.channel_id,
+            address: config.address || randId(),
+            startNew: config.startNew || true,
+            retransmissionTimeout: config.retransmissionTimeout || 1000,
+            retransmissionMaxTimeout: config.retransmissionMaxTimeout || 20000,
+            retransmissionAttempts: config.retransmissionAttempts || 100
+        };
+        this.retryAllowed = true;
+        this.sockReady = false;
         this.parser = new FeersumParser({
-            version: config.schemaVersion
-        });
+            version: config.schemaVersion || "0.9"
+        }).parser();
     }
 
     RWCFeersumClient.prototype.init = function init(handlers) {
@@ -38,23 +46,43 @@ var RWCFeersumClient = function () {
         var _this = this;
 
         return new Promise(function (resolve, reject) {
-            _this.sock = new SockJS(_this.url);
+            _this.sock = new SockJS(_this.url, null, {
+                sessionId: function sessionId() {
+                    return _this.config.address;
+                }
+            });
             _this.sock.onopen = function () {
+                _this.sock.send(JSON.stringify({
+                    type: "connect",
+                    channel_id: _this.config.channel_id,
+                    start: _this.config.startNew
+                }));
+                _this.config.startNew = false;
+                _this.retryAllowed = true;
+                _this.sockReady = true;
                 _this.bindReceiveHandler();
                 _this.handlers.connection.open();
                 resolve();
             };
             _this.sock.onclose = function (err) {
+                _this.sockReady = false;
                 _this.handlers.connection.close(err);
                 reject(err);
+                if (_this.retryAllowed) {
+                    _this.retryAllowed = false;
+                    _this.connectionRetry();
+                }
             };
         });
     };
 
     RWCFeersumClient.prototype.send = function send(message) {
-        this.sock.send(_extends({
-            message: message
-        }, this.config.meta));
+        if (this.sockReady) {
+            this.sock.send(JSON.stringify({
+                type: "message",
+                message: this.parser.format(message)
+            }));
+        }
     };
 
     RWCFeersumClient.prototype.bindReceiveHandler = function bindReceiveHandler(message) {
@@ -63,7 +91,10 @@ var RWCFeersumClient = function () {
         this.sock.onmessage = function (_ref2) {
             var type = _ref2.type,
                 data = _ref2.data;
-            return _this2.handlers[type](_this2.parser.parse(data));
+
+            data = _this2.parser.parse(JSON.parse(data));
+            data.origin = "remote";
+            _this2.handlers[type](data);
         };
     };
 
@@ -71,10 +102,14 @@ var RWCFeersumClient = function () {
         var _this3 = this;
 
         var count = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : 0;
-        var _config$network = this.config.network,
-            retransmissionTimeout = _config$network.retransmissionTimeout,
-            retransmissionAttempts = _config$network.retransmissionAttempts;
+        var _config = this.config,
+            retransmissionAttempts = _config.retransmissionAttempts,
+            retransmissionMaxTimeout = _config.retransmissionMaxTimeout;
 
+
+        var retransmissionTimeout = this.config.retransmissionTimeout * (count + 1);
+
+        retransmissionTimeout = retransmissionTimeout > retransmissionMaxTimeout ? retransmissionMaxTimeout : retransmissionTimeout;
 
         if (count < retransmissionAttempts) setTimeout(function () {
             return _this3.open().catch(function (err) {
