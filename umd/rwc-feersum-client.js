@@ -1,5 +1,5 @@
 /*!
- * rwc-feersum-client v1.0.0
+ * rwc-feersum-client v1.1.0
  * MIT Licensed
  */
 (function webpackUniversalModuleDefinition(root, factory) {
@@ -3270,11 +3270,11 @@ Object.defineProperty(__webpack_exports__, "__esModule", { value: true });
 /* harmony import */ var __WEBPACK_IMPORTED_MODULE_0_sockjs_client__ = __webpack_require__(34);
 /* harmony import */ var __WEBPACK_IMPORTED_MODULE_0_sockjs_client___default = __webpack_require__.n(__WEBPACK_IMPORTED_MODULE_0_sockjs_client__);
 /* harmony import */ var __WEBPACK_IMPORTED_MODULE_1__parsers__ = __webpack_require__(67);
-var _extends = Object.assign || function (target) { for (var i = 1; i < arguments.length; i++) { var source = arguments[i]; for (var key in source) { if (Object.prototype.hasOwnProperty.call(source, key)) { target[key] = source[key]; } } } return target; };
-
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_2__utils__ = __webpack_require__(68);
 function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
 
 // @ts-check
+
 
 
 
@@ -3289,10 +3289,19 @@ var RWCFeersumClient = function () {
         _classCallCheck(this, RWCFeersumClient);
 
         this.url = url;
-        this.config = config;
+        this.config = {
+            channel_id: config.channel_id,
+            address: config.address || Object(__WEBPACK_IMPORTED_MODULE_2__utils__["a" /* randId */])(),
+            startNew: config.startNew || true,
+            retransmissionTimeout: config.retransmissionTimeout || 1000,
+            retransmissionMaxTimeout: config.retransmissionMaxTimeout || 20000,
+            retransmissionAttempts: config.retransmissionAttempts || 100
+        };
+        this.retryAllowed = true;
+        this.sockReady = false;
         this.parser = new __WEBPACK_IMPORTED_MODULE_1__parsers__["a" /* default */]({
-            version: config.schemaVersion
-        });
+            version: config.schemaVersion || "0.9"
+        }).parser();
     }
 
     RWCFeersumClient.prototype.init = function init(handlers) {
@@ -3310,23 +3319,43 @@ var RWCFeersumClient = function () {
         var _this = this;
 
         return new Promise(function (resolve, reject) {
-            _this.sock = new __WEBPACK_IMPORTED_MODULE_0_sockjs_client___default.a(_this.url);
+            _this.sock = new __WEBPACK_IMPORTED_MODULE_0_sockjs_client___default.a(_this.url, null, {
+                sessionId: function sessionId() {
+                    return _this.config.address;
+                }
+            });
             _this.sock.onopen = function () {
+                _this.sock.send(JSON.stringify({
+                    type: "connect",
+                    channel_id: _this.config.channel_id,
+                    start: _this.config.startNew
+                }));
+                _this.config.startNew = false;
+                _this.retryAllowed = true;
+                _this.sockReady = true;
                 _this.bindReceiveHandler();
                 _this.handlers.connection.open();
                 resolve();
             };
             _this.sock.onclose = function (err) {
+                _this.sockReady = false;
                 _this.handlers.connection.close(err);
                 reject(err);
+                if (_this.retryAllowed) {
+                    _this.retryAllowed = false;
+                    _this.connectionRetry();
+                }
             };
         });
     };
 
     RWCFeersumClient.prototype.send = function send(message) {
-        this.sock.send(_extends({
-            message: message
-        }, this.config.meta));
+        if (this.sockReady) {
+            this.sock.send(JSON.stringify({
+                type: "message",
+                message: this.parser.format(message)
+            }));
+        }
     };
 
     RWCFeersumClient.prototype.bindReceiveHandler = function bindReceiveHandler(message) {
@@ -3335,7 +3364,10 @@ var RWCFeersumClient = function () {
         this.sock.onmessage = function (_ref2) {
             var type = _ref2.type,
                 data = _ref2.data;
-            return _this2.handlers[type](_this2.parser.parse(data));
+
+            data = _this2.parser.parse(JSON.parse(data));
+            data.origin = "remote";
+            _this2.handlers[type](data);
         };
     };
 
@@ -3343,10 +3375,14 @@ var RWCFeersumClient = function () {
         var _this3 = this;
 
         var count = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : 0;
-        var _config$network = this.config.network,
-            retransmissionTimeout = _config$network.retransmissionTimeout,
-            retransmissionAttempts = _config$network.retransmissionAttempts;
+        var _config = this.config,
+            retransmissionAttempts = _config.retransmissionAttempts,
+            retransmissionMaxTimeout = _config.retransmissionMaxTimeout;
 
+
+        var retransmissionTimeout = this.config.retransmissionTimeout * (count + 1);
+
+        retransmissionTimeout = retransmissionTimeout > retransmissionMaxTimeout ? retransmissionMaxTimeout : retransmissionTimeout;
 
         if (count < retransmissionAttempts) setTimeout(function () {
             return _this3.open().catch(function (err) {
@@ -6398,8 +6434,6 @@ module.exports = FacadeJS;
 
 "use strict";
 /* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "a", function() { return FeersumParser; });
-var _extends = Object.assign || function (target) { for (var i = 1; i < arguments.length; i++) { var source = arguments[i]; for (var key in source) { if (Object.prototype.hasOwnProperty.call(source, key)) { target[key] = source[key]; } } } return target; };
-
 function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
 
 /** A parser utility that transforms messages targeting various versions of the Feersum schema */
@@ -6412,60 +6446,82 @@ var FeersumParser = function () {
         this.version = version;
     }
 
-    FeersumParser.prototype.parse = function parse(data) {
-        return parserVersionMap[this.version](data);
+    FeersumParser.prototype.parser = function parser() {
+        return parserVersionMap[this.version];
     };
 
     return FeersumParser;
 }();
-
-
-
-
-var parserVersionMap = {
-    '0.9': parser09,
-    '0.10': parser10
-};
 
 /**
  * Parser function for Feersum Schema v0.9
  * @link http://dev.feersum.io/static/help/transports/feersum09.html#message-send-data-format
  * @param {*} data
  */
-var parser09 = function parser09(data) {
-    var _data = Object.assign({}, data);
-    _data.pages = [];
-    var pages = data.pages;
 
-    pages.map(function (page) {
-        var tempPage = Object.assign({}, page);
-        tempPage.image = {};
-        Object.keys(page).map(function (key) {
-            if (key.includes('image_')) {
-                tempPage.image[key.replace('image_', '')] = page[key];
-                delete newData.property;
+
+
+var parser09 = {
+    parse: function parse(data) {
+        var _data = Object.assign({}, data);
+        _data.pages = [];
+        var pages = data.pages;
+
+        pages.map(function (page) {
+            var tempPage = Object.assign({}, page);
+            tempPage.image = {};
+            Object.keys(page).map(function (key) {
+                if (key.includes("image_")) {
+                    tempPage.image[key.replace("image_", "")] = page[key];
+                    delete _data.property;
+                }
+            });
+            if (Object.keys(tempPage.image).length) {
+                _data.pages.push(tempPage);
+            } else {
+                _data.pages.push(page);
             }
         });
-        if (Object.keys(tempPage.image).length) {
-            _data.pages.push(tempPage);
-        } else {
-            _data.pages.push(page);
-        }
-    });
 
-    return _extends({}, JSON.parse(_data), {
-        origin: 'remote'
-    });
+        return _data;
+    },
+    format: function format(data) {
+        return data.type === "text" ? {
+            content: data.text
+        } : data.type === "button" ? { postback: data.postback } : { content: "" };
+    }
 };
 
 /**
  * Parser function for Feersum Schema v0.10
  * @param {*} data
  */
-var parser10 = function parser10(data) {
-    return _extends({}, JSON.parse(data), {
-        origin: 'remote'
-    });
+var parser10 = {
+    parse: function parse(data) {
+        return data;
+    },
+    format: function format(data) {
+        return data;
+    }
+};
+
+var parserVersionMap = {
+    "0.9": parser09,
+    "0.10": parser10
+};
+
+/***/ }),
+/* 68 */
+/***/ (function(module, __webpack_exports__, __webpack_require__) {
+
+"use strict";
+/* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "a", function() { return randId; });
+var randId = function randId() {
+    return Array.apply(null, new Array(22)).map(function () {
+        return function (charset) {
+            return charset.charAt(Math.floor(Math.random() * charset.length));
+        }("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789");
+    }).join("");
 };
 
 /***/ })

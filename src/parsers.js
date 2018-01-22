@@ -4,53 +4,61 @@ export default class FeersumParser {
         this.version = version;
     }
 
-    parse(data) {
-        return parserVersionMap[this.version](data);
+    parser() {
+        return parserVersionMap[this.version];
     }
 }
-
-const parserVersionMap = {
-    '0.9': parser09,
-    '0.10': parser10
-};
 
 /**
  * Parser function for Feersum Schema v0.9
  * @link http://dev.feersum.io/static/help/transports/feersum09.html#message-send-data-format
  * @param {*} data
  */
-const parser09 = data => {
-    var _data = Object.assign({}, data);
-    _data.pages = [];
-    var pages = data.pages;
+const parser09 = {
+    parse: data => {
+        var _data = Object.assign({}, data);
+        _data.pages = [];
+        var pages = data.pages;
 
-    pages.map(page => {
-        var tempPage = Object.assign({}, page);
-        tempPage.image = {};
-        Object.keys(page).map(key => {
-            if (key.includes('image_')) {
-                tempPage.image[key.replace('image_', '')] = page[key];
-                delete newData.property;
+        pages.map(page => {
+            var tempPage = Object.assign({}, page);
+            tempPage.image = {};
+            Object.keys(page).map(key => {
+                if (key.includes("image_")) {
+                    tempPage.image[key.replace("image_", "")] = page[key];
+                    delete _data.property;
+                }
+            });
+            if (Object.keys(tempPage.image).length) {
+                _data.pages.push(tempPage);
+            } else {
+                _data.pages.push(page);
             }
         });
-        if (Object.keys(tempPage.image).length) {
-            _data.pages.push(tempPage);
-        } else {
-            _data.pages.push(page);
-        }
-    });
 
-    return {
-        ...JSON.parse(_data),
-        origin: 'remote'
-    };
+        return _data;
+    },
+    format: data => {
+        return data.type === "text"
+            ? {
+                  content: data.text
+              }
+            : data.type === "button"
+              ? { postback: data.postback }
+              : { content: "" };
+    }
 };
 
 /**
  * Parser function for Feersum Schema v0.10
  * @param {*} data
  */
-const parser10 = data => ({
-    ...JSON.parse(data),
-    origin: 'remote'
-});
+const parser10 = {
+    parse: data => data,
+    format: data => data
+};
+
+const parserVersionMap = {
+    "0.9": parser09,
+    "0.10": parser10
+};
