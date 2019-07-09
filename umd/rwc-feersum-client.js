@@ -1,5 +1,5 @@
 /*!
- * rwc-feersum-client v1.2.0
+ * rwc-feersum-client v1.3.0
  * MIT Licensed
  */
 (function webpackUniversalModuleDefinition(root, factory) {
@@ -5790,7 +5790,6 @@ var RWCFeersumClient = function () {
     this.transportServerUrl = config.transportServerUrl;
     this.channelId = config.channel_id;
     this.config = {
-      channel_id: config.channel_id,
       startNew: config.startNew || true,
       retransmissionTimeout: config.retransmissionTimeout || 1000,
       retransmissionMaxTimeout: config.retransmissionMaxTimeout || 20000,

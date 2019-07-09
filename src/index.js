@@ -10,7 +10,6 @@ class RWCFeersumClient {
     this.transportServerUrl = config.transportServerUrl;
     this.channelId = config.channel_id;
     this.config = {
-      channel_id: config.channel_id,
       startNew: config.startNew || true,
       retransmissionTimeout: config.retransmissionTimeout || 1000,
       retransmissionMaxTimeout: config.retransmissionMaxTimeout || 20000,
@@ -81,7 +80,6 @@ class RWCFeersumClient {
 
   bindReceiveHandler(message) {
     this.sock.on('message', ({ channel_data }) => {
-      console.log(channel_data);
       let data = this.parser.parse(channel_data);
       data.origin = 'remote';
       this.handlers[channel_data.type](data);
