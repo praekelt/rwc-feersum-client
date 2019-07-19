@@ -1,15 +1,16 @@
 // @ts-check
-import io from 'socket.io-client';
+import SockJS from 'sockjs-client';
 
 import FeersumParser from './parsers';
+import { randId } from './utils';
 
 /** A network transport client that handles network connections and message transformations */
 class RWCFeersumClient {
   constructor({ url, config }) {
     this.url = url;
-    this.transportServerUrl = config.transportServerUrl;
-    this.channelId = config.channel_id;
     this.config = {
+      channel_id: config.channel_id,
+      address: config.address || randId(),
       startNew: config.startNew || true,
       retransmissionTimeout: config.retransmissionTimeout || 1000,
       retransmissionMaxTimeout: config.retransmissionMaxTimeout || 20000,
@@ -34,14 +35,17 @@ class RWCFeersumClient {
    */
   open() {
     return new Promise((resolve, reject) => {
-      this.sock = io(
-        `${this.transportServerUrl}/socket?channel_id=${
-          this.channelId
-        }&engine=${this.url}`
-      );
-      const _this = this;
-
-      this.sock.on('connect', () => {
+      this.sock = new SockJS(this.url, null, {
+        sessionId: () => this.config.address
+      });
+      this.sock.onopen = () => {
+        this.sock.send(
+          JSON.stringify({
+            type: 'connect',
+            channel_id: this.config.channel_id,
+            start: this.config.startNew
+          })
+        );
         this.config.startNew = false;
         this.retryAllowed = true;
         this.queue.map(message => {
@@ -52,9 +56,8 @@ class RWCFeersumClient {
         this.bindReceiveHandler();
         this.handlers.connection.open();
         resolve();
-      });
-
-      this.sock.on('disconnect', err => {
+      };
+      this.sock.onclose = err => {
         this.sockReady = false;
         this.handlers.connection.close(err);
         reject(err);
@@ -62,15 +65,14 @@ class RWCFeersumClient {
           this.retryAllowed = false;
           this.connectionRetry();
         }
-      });
+      };
     });
   }
 
   send(message) {
     !this.sockReady
       ? this.queue.push(message)
-      : this.sock.emit(
-          'message',
+      : this.sock.send(
           JSON.stringify({
             type: 'message',
             message: this.parser.format(message)
@@ -79,11 +81,11 @@ class RWCFeersumClient {
   }
 
   bindReceiveHandler(message) {
-    this.sock.on('message', ({ channel_data }) => {
-      let data = this.parser.parse(channel_data);
+    this.sock.onmessage = ({ type, data }) => {
+      data = this.parser.parse(JSON.parse(data));
       data.origin = 'remote';
-      this.handlers[channel_data.type](data);
-    });
+      this.handlers[type](data);
+    };
   }
 
   connectionRetry(count = 0) {
