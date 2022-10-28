@@ -20,7 +20,7 @@
     "sockjs-client": "^1.1.4"
   },
   "devDependencies": {
-    "nwb": "0.19.x"
+    "nwb": "0.25.x"
   },
   "author": "",
   "homepage": "",
