@@ -7,7 +7,7 @@ import { randId } from './utils';
 /** A network transport client that handles network connections and message transformations */
 class RWCFeersumClient {
   constructor({ url, config }) {
-    this.url = url;
+    this.baseUrl = url;  // Store base URL
     this.config = {
       channel_id: config.channel_id,
       address: config.address || randId(),
@@ -29,15 +29,23 @@ class RWCFeersumClient {
     return this.open();
   }
 
+  generateServerId() {
+    return Math.random().toString(36).substring(7);
+  }
+
   /**
    * Open the socket connection and bind all handlers.
    * @return {promise} A promise which gets resolved when a connection is opened.
    */
   open() {
     return new Promise((resolve, reject) => {
-      this.sock = new SockJS(this.url, null, {
+      const serverId = this.generateServerId();
+      const fullUrl = `${this.baseUrl}/${serverId}`;
+
+      this.sock = new SockJS(fullUrl, null, {
         sessionId: () => this.config.address
       });
+      
       this.sock.onopen = () => {
         this.sock.send(
           JSON.stringify({
@@ -57,6 +65,7 @@ class RWCFeersumClient {
         this.handlers.connection.open();
         resolve();
       };
+      
       this.sock.onclose = err => {
         this.sockReady = false;
         this.handlers.connection.close(err);

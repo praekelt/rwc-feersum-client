@@ -15,7 +15,7 @@ var RWCFeersumClient = function () {
 
     _classCallCheck(this, RWCFeersumClient);
 
-    this.url = url;
+    this.baseUrl = url; // Store base URL
     this.config = {
       channel_id: config.channel_id,
       address: config.address || randId(),
@@ -37,6 +37,10 @@ var RWCFeersumClient = function () {
     return this.open();
   };
 
+  RWCFeersumClient.prototype.generateServerId = function generateServerId() {
+    return Math.random().toString(36).substring(7);
+  };
+
   /**
    * Open the socket connection and bind all handlers.
    * @return {promise} A promise which gets resolved when a connection is opened.
@@ -47,11 +51,15 @@ var RWCFeersumClient = function () {
     var _this = this;
 
     return new Promise(function (resolve, reject) {
-      _this.sock = new SockJS(_this.url, null, {
+      var serverId = _this.generateServerId();
+      var fullUrl = _this.baseUrl + '/' + serverId;
+
+      _this.sock = new SockJS(fullUrl, null, {
         sessionId: function sessionId() {
           return _this.config.address;
         }
       });
+
       _this.sock.onopen = function () {
         _this.sock.send(JSON.stringify({
           type: 'connect',
@@ -69,6 +77,7 @@ var RWCFeersumClient = function () {
         _this.handlers.connection.open();
         resolve();
       };
+
       _this.sock.onclose = function (err) {
         _this.sockReady = false;
         _this.handlers.connection.close(err);
