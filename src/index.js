@@ -6,7 +6,7 @@ import { randId } from './utils';
 
 /** A network transport client that handles network connections and message transformations */
 class RWCFeersumClient {
-  constructor({ url, config }) {
+  constructor({ url, config, sockjsOptions = {} }) {
     this.baseUrl = url;  // Store base URL
     this.config = {
       channel_id: config.channel_id,
@@ -16,6 +16,17 @@ class RWCFeersumClient {
       retransmissionMaxTimeout: config.retransmissionMaxTimeout || 20000,
       retransmissionAttempts: config.retransmissionAttempts || 100
     };
+    this.currentServer = Math.floor(Math.random() * 999) + 1;
+    
+    // Initialize with default sockjsOptions that includes our server number generator
+    this.sockjsOptions = {
+      ...sockjsOptions,
+      server: sockjsOptions.server || (() => {
+        // Default server number generator if none provided
+        this.currentServer = (this.currentServer % 999) + 1;
+        return this.currentServer.toString().padStart(3, '0');
+      })
+    };
     this.retryAllowed = true;
     this.sockReady = false;
     this.queue = [];
@@ -24,26 +35,17 @@ class RWCFeersumClient {
     }).parser();
   }
 
-  init(handlers) {
-    this.handlers = handlers;
-    return this.open();
-  }
-
-  generateServerId() {
-    return Math.random().toString(36).substring(7);
-  }
-
   /**
    * Open the socket connection and bind all handlers.
-   * @return {promise} A promise which gets resolved when a connection is opened.
+   * @return {Promise<void>} A promise which gets resolved when a connection is opened.
    */
   open() {
     return new Promise((resolve, reject) => {
-      const serverId = this.generateServerId();
-      const fullUrl = `${this.baseUrl}/${serverId}`;
+      const fullUrl = `${this.baseUrl}`;  // SockJS will append server number
 
       this.sock = new SockJS(fullUrl, null, {
-        sessionId: () => this.config.address
+        sessionId: () => this.config.address,
+        ...this.sockjsOptions
       });
       
       this.sock.onopen = () => {
