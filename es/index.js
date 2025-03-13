@@ -43,6 +43,7 @@ var RWCFeersumClient = function () {
     this.retryAllowed = true;
     this.sockReady = false;
     this.queue = [];
+    this.handlers = {}; // Initialize handlers object
     this.parser = new FeersumParser({
       version: config.schemaVersion || '0.9'
     }).parser();
@@ -74,7 +75,7 @@ var RWCFeersumClient = function () {
         }));
         _this2.config.startNew = false;
         _this2.retryAllowed = true;
-        _this2.queue.map(function (message) {
+        _this2.queue.forEach(function (message) {
           _this2.send(message);
         });
         _this2.queue = [];
@@ -103,7 +104,7 @@ var RWCFeersumClient = function () {
     }));
   };
 
-  RWCFeersumClient.prototype.bindReceiveHandler = function bindReceiveHandler(message) {
+  RWCFeersumClient.prototype.bindReceiveHandler = function bindReceiveHandler() {
     var _this3 = this;
 
     this.sock.onmessage = function (_ref2) {
@@ -129,11 +130,13 @@ var RWCFeersumClient = function () {
 
     retransmissionTimeout = retransmissionTimeout > retransmissionMaxTimeout ? retransmissionMaxTimeout : retransmissionTimeout;
 
-    if (count < retransmissionAttempts) setTimeout(function () {
-      return _this4.open().catch(function (err) {
-        _this4.connectionRetry(count + 1);
-      });
-    }, retransmissionTimeout);
+    if (count < retransmissionAttempts) {
+      setTimeout(function () {
+        return _this4.open().catch(function (err) {
+          _this4.connectionRetry(count + 1);
+        });
+      }, retransmissionTimeout);
+    }
   };
 
   return RWCFeersumClient;

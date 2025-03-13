@@ -30,6 +30,7 @@ class RWCFeersumClient {
     this.retryAllowed = true;
     this.sockReady = false;
     this.queue = [];
+    this.handlers = {}; // Initialize handlers object
     this.parser = new FeersumParser({
       version: config.schemaVersion || '0.9'
     }).parser();
@@ -58,7 +59,7 @@ class RWCFeersumClient {
         );
         this.config.startNew = false;
         this.retryAllowed = true;
-        this.queue.map(message => {
+        this.queue.forEach(message => {
           this.send(message);
         });
         this.queue = [];
@@ -68,7 +69,7 @@ class RWCFeersumClient {
         resolve();
       };
       
-      this.sock.onclose = err => {
+      this.sock.onclose = (err) => {
         this.sockReady = false;
         this.handlers.connection.close(err);
         reject(err);
@@ -91,7 +92,7 @@ class RWCFeersumClient {
         );
   }
 
-  bindReceiveHandler(message) {
+  bindReceiveHandler() {
     this.sock.onmessage = ({ type, data }) => {
       data = this.parser.parse(JSON.parse(data));
       data.origin = 'remote';
@@ -100,7 +101,7 @@ class RWCFeersumClient {
   }
 
   connectionRetry(count = 0) {
-    let { retransmissionAttempts, retransmissionMaxTimeout } = this.config;
+    const { retransmissionAttempts, retransmissionMaxTimeout } = this.config;
 
     let retransmissionTimeout = this.config.retransmissionTimeout * (count + 1);
 
@@ -109,14 +110,14 @@ class RWCFeersumClient {
         ? retransmissionMaxTimeout
         : retransmissionTimeout;
 
-    if (count < retransmissionAttempts)
+    if (count < retransmissionAttempts) {
       setTimeout(
-        () =>
-          this.open().catch(err => {
-            this.connectionRetry(count + 1);
-          }),
+        () => this.open().catch(err => {
+          this.connectionRetry(count + 1);
+        }),
         retransmissionTimeout
       );
+    }
   }
 }
 
