@@ -6,8 +6,8 @@ import { randId } from './utils';
 
 /** A network transport client that handles network connections and message transformations */
 class RWCFeersumClient {
-  constructor({ url, config }) {
-    this.url = url;
+  constructor({ url, config, sockjsOptions = {} }) {
+    this.baseUrl = url;  // Store base URL
     this.config = {
       channel_id: config.channel_id,
       address: config.address || randId(),
@@ -16,28 +16,39 @@ class RWCFeersumClient {
       retransmissionMaxTimeout: config.retransmissionMaxTimeout || 20000,
       retransmissionAttempts: config.retransmissionAttempts || 100
     };
+    this.currentServer = Math.floor(Math.random() * 999) + 1;
+    
+    // Initialize with default sockjsOptions that includes our server number generator
+    this.sockjsOptions = {
+      ...sockjsOptions,
+      server: sockjsOptions.server || (() => {
+        // Default server number generator if none provided
+        this.currentServer = (this.currentServer % 999) + 1;
+        return this.currentServer.toString().padStart(3, '0');
+      })
+    };
     this.retryAllowed = true;
     this.sockReady = false;
     this.queue = [];
+    this.handlers = {}; // Initialize handlers object
     this.parser = new FeersumParser({
       version: config.schemaVersion || '0.9'
     }).parser();
   }
 
-  init(handlers) {
-    this.handlers = handlers;
-    return this.open();
-  }
-
   /**
    * Open the socket connection and bind all handlers.
-   * @return {promise} A promise which gets resolved when a connection is opened.
+   * @return {Promise<void>} A promise which gets resolved when a connection is opened.
    */
   open() {
     return new Promise((resolve, reject) => {
-      this.sock = new SockJS(this.url, null, {
-        sessionId: () => this.config.address
+      const fullUrl = `${this.baseUrl}`;  // SockJS will append server number
+
+      this.sock = new SockJS(fullUrl, null, {
+        sessionId: () => this.config.address,
+        ...this.sockjsOptions
       });
+      
       this.sock.onopen = () => {
         this.sock.send(
           JSON.stringify({
@@ -48,7 +59,7 @@ class RWCFeersumClient {
         );
         this.config.startNew = false;
         this.retryAllowed = true;
-        this.queue.map(message => {
+        this.queue.forEach(message => {
           this.send(message);
         });
         this.queue = [];
@@ -57,7 +68,8 @@ class RWCFeersumClient {
         this.handlers.connection.open();
         resolve();
       };
-      this.sock.onclose = err => {
+      
+      this.sock.onclose = (err) => {
         this.sockReady = false;
         this.handlers.connection.close(err);
         reject(err);
@@ -80,7 +92,7 @@ class RWCFeersumClient {
         );
   }
 
-  bindReceiveHandler(message) {
+  bindReceiveHandler() {
     this.sock.onmessage = ({ type, data }) => {
       data = this.parser.parse(JSON.parse(data));
       data.origin = 'remote';
@@ -89,7 +101,7 @@ class RWCFeersumClient {
   }
 
   connectionRetry(count = 0) {
-    let { retransmissionAttempts, retransmissionMaxTimeout } = this.config;
+    const { retransmissionAttempts, retransmissionMaxTimeout } = this.config;
 
     let retransmissionTimeout = this.config.retransmissionTimeout * (count + 1);
 
@@ -98,14 +110,14 @@ class RWCFeersumClient {
         ? retransmissionMaxTimeout
         : retransmissionTimeout;
 
-    if (count < retransmissionAttempts)
+    if (count < retransmissionAttempts) {
       setTimeout(
-        () =>
-          this.open().catch(err => {
-            this.connectionRetry(count + 1);
-          }),
+        () => this.open().catch(err => {
+          this.connectionRetry(count + 1);
+        }),
         retransmissionTimeout
       );
+    }
   }
 }
 
